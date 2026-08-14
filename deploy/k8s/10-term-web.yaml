@@ -1,0 +1,130 @@
+# term-web — browser terminal for Claude Code / Codex at term.kardol.us.
+# PRIVATE: every page/API is Keycloak-OIDC-gated (ALLOWED_EMAILS=g@kardol.us)
+# except /favicon.svg (blackbox probe) and /healthz. The WS terminal endpoint
+# additionally needs a one-time 30s ticket + Origin check.
+#
+# Terminals run ON THE HOST as guillermo: pod pty -> ssh -tt 10.0.0.120 ->
+# tmux new -A. tmux is the persistence layer (close tab = detach, agent keeps
+# running). Session listings are read from ro hostPath mounts.
+#
+# Prereqs:
+#   ssh keypair: pub appended to /home/guillermo/.ssh/authorized_keys on forge
+#   kubectl create namespace term
+#   kubectl -n term create secret generic term-ssh \
+#     --from-file=id_ed25519=<key> --from-file=known_hosts=<ssh-keyscan 10.0.0.120>
+#   kubectl -n term create secret generic keycloak-oidc \
+#     --from-literal=client_id=term --from-literal=client_secret=<kc client secret>
+#   kubectl -n term create secret generic session-secret \
+#     --from-literal=SESSION_SECRET=<openssl rand -hex 32>
+#   kubectl -n term create secret docker-registry ghcr-pull ...
+#   Keycloak: confidential client `term` (redirect https://term.kardol.us/auth/callback)
+#             + realm user g@kardol.us (auto-links to Google on first login)
+#   Cloudflare: CNAME term -> platform tunnel + tunnel hostname rule
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: term-web
+  namespace: term
+  labels: {app: term-web}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # one-time-ticket + terminal-counter state is in-process
+  selector:
+    matchLabels: {app: term-web}
+  template:
+    metadata:
+      labels: {app: term-web}
+    spec:
+      imagePullSecrets:
+        - {name: ghcr-pull}
+      containers:
+        - name: term-web
+          image: ghcr.io/kardolus/term-web:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {containerPort: 8000, name: http}
+          env:
+            - {name: TZ, value: America/New_York}
+            - {name: PUBLIC_BASE_URL, value: "https://term.kardol.us"}
+            - {name: KEYCLOAK_ISSUER, value: "https://auth.kardol.us/realms/homelab"}
+            - {name: ALLOWED_EMAILS, value: "g@kardol.us"}
+            - name: KEYCLOAK_CLIENT_ID
+              valueFrom:
+                secretKeyRef: {name: keycloak-oidc, key: client_id}
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: keycloak-oidc, key: client_secret}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef: {name: session-secret, key: SESSION_SECRET}
+          volumeMounts:
+            - {name: claude-archive, mountPath: /data/claude-archive, readOnly: true}
+            - {name: codex-sessions, mountPath: /data/codex-sessions, readOnly: true}
+            - {name: workspace, mountPath: /data/workspace, readOnly: true}
+            - {name: ssh, mountPath: /ssh, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 4
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8000}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+      volumes:
+        # type: Directory = fail-safe: pod won't start if a path is missing
+        - name: claude-archive
+          hostPath: {path: /home/guillermo/claude-sessions, type: Directory}
+        - name: codex-sessions
+          hostPath: {path: /home/guillermo/.codex/sessions, type: Directory}
+        - name: workspace
+          hostPath: {path: /home/guillermo/workspace, type: Directory}
+        - name: ssh
+          secret:
+            secretName: term-ssh
+            defaultMode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: term-web
+  namespace: term
+  labels: {app: term-web}
+spec:
+  selector: {app: term-web}
+  ports:
+    - {name: http, port: 8000, targetPort: 8000}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: term-web
+  namespace: term
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    # the WS lifeline — long-lived terminal connections
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: term.kardol.us
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: term-web
+                port:
+                  number: 8000

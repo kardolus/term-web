@@ -1,0 +1,25 @@
+[project]
+name = "term-web"
+version = "0.1.0"
+description = "Browser terminal for Claude Code / Codex on forge, with session picker (term.kardol.us)"
+requires-python = ">=3.12"
+dependencies = [
+    "starlette>=0.37",
+    "uvicorn[standard]>=0.29",
+    "authlib>=1.3",
+    "itsdangerous>=2.1",
+    "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/termweb"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
