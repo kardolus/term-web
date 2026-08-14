@@ -39,13 +39,20 @@ spec:
     spec:
       imagePullSecrets:
         - {name: ghcr-pull}
+      securityContext:
+        fsGroup: 1000   # secret files come up root:1000 0440 (readable by app uid 1000)
       containers:
         - name: term-web
-          image: ghcr.io/kardolus/term-web:v1
+          image: ghcr.io/kardolus/term-web:v2
           imagePullPolicy: IfNotPresent
+          # ssh refuses group-readable private keys -> copy to 0400 at startup
+          command: ["sh", "-c",
+            "mkdir -p /tmp/ssh && cp /ssh-secret/id_ed25519 /ssh-secret/known_hosts /tmp/ssh/ && chmod 400 /tmp/ssh/* && exec python -m termweb.server"]
           ports:
             - {containerPort: 8000, name: http}
           env:
+            - {name: SSH_KEY, value: /tmp/ssh/id_ed25519}
+            - {name: SSH_KNOWN_HOSTS, value: /tmp/ssh/known_hosts}
             - {name: TZ, value: America/New_York}
             - {name: PUBLIC_BASE_URL, value: "https://term.kardol.us"}
             - {name: KEYCLOAK_ISSUER, value: "https://auth.kardol.us/realms/homelab"}
@@ -63,7 +70,7 @@ spec:
             - {name: claude-archive, mountPath: /data/claude-archive, readOnly: true}
             - {name: codex-sessions, mountPath: /data/codex-sessions, readOnly: true}
             - {name: workspace, mountPath: /data/workspace, readOnly: true}
-            - {name: ssh, mountPath: /ssh, readOnly: true}
+            - {name: ssh, mountPath: /ssh-secret, readOnly: true}
           readinessProbe:
             httpGet: {path: /healthz, port: 8000}
             initialDelaySeconds: 5
@@ -90,7 +97,7 @@ spec:
         - name: ssh
           secret:
             secretName: term-ssh
-            defaultMode: 0400
+            defaultMode: 0440
 ---
 apiVersion: v1
 kind: Service

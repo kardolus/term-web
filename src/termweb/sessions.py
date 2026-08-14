@@ -8,6 +8,7 @@ claude-sessions CLI (`cmd_list`), emitting dicts instead of fixed-width text.
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 
@@ -194,10 +195,13 @@ def _ssh_base() -> list[str]:
 
 
 def list_tmux() -> list[dict]:
+    # ssh joins argv with spaces and the remote shell re-parses it, so the whole
+    # remote command must be one pre-quoted string (unquoted '#{...}' would
+    # start a shell comment and eat the -F argument).
+    fmt = "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_windows}"
     try:
         out = subprocess.run(
-            _ssh_base() + ["--", "/usr/bin/tmux", "list-sessions", "-F",
-                           "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_windows}"],
+            _ssh_base() + ["--", f"/usr/bin/tmux list-sessions -F {shlex.quote(fmt)}"],
             capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
