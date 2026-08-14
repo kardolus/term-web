@@ -20,6 +20,7 @@ _CSS = """
 * { box-sizing: border-box; margin: 0; }
 :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3;
         --dim:#8b949e; --accent:#3fb950; --accent-dim:#238636; }
+html, body { overflow-x: hidden; }  /* the page never side-scrolls; tables do */
 body { background: var(--bg); color: var(--fg); min-height: 100vh;
        font: 14px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
 a { color: var(--accent); text-decoration: none; }
@@ -34,7 +35,9 @@ h2 { font-size: 1rem; color: var(--accent); margin: 1.6rem 0 .6rem;
      text-transform: lowercase; }
 h2::before { content: "## "; color: var(--dim); }
 .note { color: var(--dim); font-size:.85rem; margin-bottom:.5rem; }
+.tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width:100%; border-collapse: collapse; font-size:.85rem; }
+td:last-child { white-space: nowrap; }  /* keep action buttons on one line */
 th { text-align:left; color:var(--dim); font-weight:400; padding:.3rem .5rem;
      border-bottom:1px solid var(--border); }
 td { padding:.35rem .5rem; border-bottom:1px solid #21262d; vertical-align:top; }
@@ -54,6 +57,12 @@ button.primary:hover { color:#fff; }
          padding:0 .5rem; color:var(--dim); }
 .badge.live { color: var(--accent); border-color: var(--accent-dim); }
 #status { color: var(--dim); margin:.8rem 0; min-height:1.2em; }
+@media (max-width: 700px) {
+  main { padding: .8rem; }
+  table { font-size:.8rem; }
+  .preview { max-width: 45vw; }
+  header { padding:.6rem .8rem; }
+}
 #term { position: fixed; inset: 3.05rem 0 0 0; padding: 4px; background: var(--bg); }
 #overlay { position: fixed; inset: 0; display:none; align-items:center;
   justify-content:center; background: rgba(13,17,23,.85); z-index: 10; }
@@ -86,7 +95,7 @@ PICKER_BODY = """
 
 <h2>running on forge</h2>
 <div class="note">live tmux sessions — reattach picks up exactly where the terminal left off.</div>
-<table id="tmux"><tbody></tbody></table>
+<div class="tablewrap"><table id="tmux"><tbody></tbody></table></div>
 
 <h2>new session</h2>
 <div class="newrow">
@@ -98,11 +107,11 @@ PICKER_BODY = """
 
 <h2>claude archive</h2>
 <div class="note">all machines, synced to forge every 5 min. "open in codex" hands the other agent a transcript digest.</div>
-<table id="claude"><thead><tr><th>when</th><th>host</th><th>project</th><th>size</th><th>preview</th><th></th></tr></thead><tbody></tbody></table>
+<div class="tablewrap"><table id="claude"><thead><tr><th>when</th><th>host</th><th>project</th><th>size</th><th>preview</th><th></th></tr></thead><tbody></tbody></table></div>
 
 <h2>codex sessions</h2>
 <div class="note">forge-local only — codex sessions from other machines aren't synced.</div>
-<table id="codex"><thead><tr><th>when</th><th>dir</th><th>size</th><th>preview</th><th></th></tr></thead><tbody></tbody></table>
+<div class="tablewrap"><table id="codex"><thead><tr><th>when</th><th>dir</th><th>size</th><th>preview</th><th></th></tr></thead><tbody></tbody></table></div>
 </main>
 <script>
 const esc = s => { const d = document.createElement('span'); d.textContent = s ?? ''; return d.innerHTML; };
