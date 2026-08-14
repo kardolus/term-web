@@ -9,7 +9,7 @@ def test_build_claude_command():
     cmd = terminal.build_remote_command(
         {"kind": "claude", "uuid": "11111111-2222-3333-4444-555555555555",
          "name": "cs-11111111"})
-    assert cmd.startswith("/usr/bin/tmux new-session -A -s cs-11111111 ")
+    assert cmd.startswith("/usr/bin/tmux new-session -A -D -s cs-11111111 ")
     assert "CLAUDE_SESSIONS_REMOTE=local" in cmd
     assert ".local/bin" in cmd
     assert "claude-sessions open 11111111-2222-3333-4444-555555555555" in cmd
