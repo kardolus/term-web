@@ -164,11 +164,13 @@ def terminal_body(name: str) -> str:
     fit_url, fit_sri = XTERM_FIT
     return f"""
 <style>
-/* terminal page only: lock the page so mobile swipes can never grab the
-   browser window (iOS address-bar collapse / rubber-band) */
-html, body {{ position: fixed; inset: 0; overflow: hidden;
-             overscroll-behavior: none; }}
-#term {{ touch-action: manipulation; }}  /* keep tap->click synthesis alive */
+/* touch devices only: lock the page so swipes can never grab the browser
+   window (iOS address-bar collapse / rubber-band). Desktop is untouched. */
+@media (pointer: coarse) {{
+  html, body {{ position: fixed; inset: 0; overflow: hidden;
+               overscroll-behavior: none; }}
+  #term {{ touch-action: manipulation; }}  /* keep tap->click synthesis alive */
+}}
 </style>
 <div id="term"></div>
 <div id="overlay"><div class="box"><p id="overlay-msg">session ended</p>

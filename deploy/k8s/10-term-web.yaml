@@ -43,7 +43,7 @@ spec:
         fsGroup: 1000   # secret files come up root:1000 0440 (readable by app uid 1000)
       containers:
         - name: term-web
-          image: ghcr.io/kardolus/term-web:v6
+          image: ghcr.io/kardolus/term-web:v7
           imagePullPolicy: IfNotPresent
           # ssh refuses group-readable private keys -> copy to 0400 at startup
           command: ["sh", "-c",
