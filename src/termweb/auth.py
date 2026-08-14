@@ -6,6 +6,7 @@ valid session, or a RedirectResponse/JSONResponse to return as-is. Public paths
 (/favicon.svg, /healthz) never call it.
 """
 
+from authlib.integrations.base_client.errors import MismatchingStateError
 from authlib.integrations.starlette_client import OAuth
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from starlette.requests import Request
@@ -66,7 +67,12 @@ async def login(request: Request):
 
 
 async def callback(request: Request):
-    token = await oauth.keycloak.authorize_access_token(request)
+    try:
+        token = await oauth.keycloak.authorize_access_token(request)
+    except MismatchingStateError:
+        # Stale or replayed callback (mobile browsers love re-requesting it) —
+        # restart the flow instead of 500ing.
+        return RedirectResponse(url="/auth/login")
     userinfo = token.get("userinfo") or await oauth.keycloak.userinfo(token=token)
     email = (userinfo or {}).get("email")
     if email not in config.ALLOWED_EMAILS:
