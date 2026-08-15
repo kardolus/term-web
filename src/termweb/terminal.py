@@ -105,9 +105,7 @@ def build_remote_command(target: dict) -> str:
     kind = target["kind"]
     name = target["name"]
     if kind == "attach":
-        # -d: detach other clients — tmux sizes windows to the active client,
-        # so a phone left attached would clamp the desktop to phone width.
-        return f"/usr/bin/tmux attach-session -d -t {shlex.quote(name)}"
+        return f"/usr/bin/tmux attach-session -t {shlex.quote(name)}"
 
     if kind == "claude":
         inner = (f"{_ENV} CLAUDE_SESSIONS_REMOTE=local "
@@ -126,9 +124,7 @@ def build_remote_command(target: dict) -> str:
         inner = f'cd "{wd}" && {_ENV} {target["agent"]}'
     else:
         raise TargetError("unknown kind")
-    # -A: attach if it already exists; -D (with -A): detach other clients then,
-    # so the newest viewer always gets a full-size terminal (no phone-width clamp)
-    return f"/usr/bin/tmux new-session -A -D -s {shlex.quote(name)} {shlex.quote(inner)}"
+    return f"/usr/bin/tmux new-session -A -s {shlex.quote(name)} {shlex.quote(inner)}"
 
 
 # ------------------------------------------------------------------ tickets

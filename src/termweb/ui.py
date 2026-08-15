@@ -163,15 +163,6 @@ def terminal_body(name: str) -> str:
     js_url, js_sri = XTERM_JS
     fit_url, fit_sri = XTERM_FIT
     return f"""
-<style>
-/* touch devices only: lock the page so swipes can never grab the browser
-   window (iOS address-bar collapse / rubber-band). Desktop is untouched. */
-@media (pointer: coarse) {{
-  html, body {{ position: fixed; inset: 0; overflow: hidden;
-               overscroll-behavior: none; }}
-  #term {{ touch-action: manipulation; }}  /* keep tap->click synthesis alive */
-}}
-</style>
 <div id="term"></div>
 <div id="overlay"><div class="box"><p id="overlay-msg">session ended</p>
 <button class="primary" onclick="location.href='/'">back to sessions</button>
@@ -221,45 +212,6 @@ async function reconnect() {{
   connect((await r.json()).ticket);
 }}
 term.onData(d => {{ if (ws && ws.readyState === 1) ws.send(JSON.stringify({{t:'i', d}})); }});
-// xterm.js has no native touch scrolling — translate vertical swipes into
-// synthetic wheel events so its existing pipeline does the right thing in
-// every mode (scrollback in the normal buffer, mouse-reporting/arrow
-// fallback inside tmux/claude — the same path a laptop wheel takes).
-// Tap vs swipe: preventDefault() on ANY touchmove makes WebKit cancel the
-// synthesized click that focuses xterm's hidden textarea (= no iOS keyboard),
-// and taps always jitter a pixel or two. So scrolling only engages past a
-// slop threshold; clean taps keep their click AND get an explicit focus.
-(() => {{
-  const el = document.getElementById('term');
-  const SLOP = 10;  // px of movement before a touch counts as a scroll
-  let startY = null, lastY = null, scrolling = false;
-  el.addEventListener('touchstart', e => {{
-    if (e.touches.length !== 1) {{ startY = null; return; }}
-    startY = lastY = e.touches[0].clientY;
-    scrolling = false;
-  }}, {{passive: true}});
-  el.addEventListener('touchmove', e => {{
-    if (startY === null || e.touches.length !== 1) return;
-    const t = e.touches[0];
-    if (!scrolling && Math.abs(t.clientY - startY) < SLOP) return;  // still a tap
-    scrolling = true;
-    e.preventDefault();
-    const dy = lastY - t.clientY;  // finger up => wheel down
-    lastY = t.clientY;
-    if (!dy) return;
-    const target = el.querySelector('.xterm-screen') || el;
-    target.dispatchEvent(new WheelEvent('wheel', {{
-      deltaY: dy, deltaMode: 0, clientX: t.clientX, clientY: t.clientY,
-      bubbles: true, cancelable: true,
-    }}));
-  }}, {{passive: false}});
-  el.addEventListener('touchend', () => {{
-    if (startY !== null && !scrolling) term.focus();  // trusted gesture -> keyboard
-    startY = null; scrolling = false;
-  }}, {{passive: true}});
-  el.addEventListener('touchcancel', () => {{ startY = null; scrolling = false; }},
-    {{passive: true}});
-}})();
 window.addEventListener('resize', () => {{ fit.fit();
   if (ws && ws.readyState === 1)
     ws.send(JSON.stringify({{t:'r', cols: term.cols, rows: term.rows}})); }});
