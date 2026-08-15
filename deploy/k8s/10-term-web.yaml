@@ -43,8 +43,9 @@ spec:
         fsGroup: 1000   # secret files come up root:1000 0440 (readable by app uid 1000)
       containers:
         - name: term-web
-          image: ghcr.io/kardolus/term-web:v10
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/kardolus/term-web:v11
+          # Always: a stale locally-cached tag once shipped old code as "v10"
+          imagePullPolicy: Always
           # ssh refuses group-readable private keys -> copy to 0400 at startup
           command: ["sh", "-c",
             "mkdir -p /tmp/ssh && cp /ssh-secret/id_ed25519 /ssh-secret/known_hosts /tmp/ssh/ && chmod 400 /tmp/ssh/* && exec python -m termweb.server"]
