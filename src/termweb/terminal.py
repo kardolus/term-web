@@ -23,6 +23,12 @@ from . import config, handoff, sessions
 # open` ends in `exec claude` by bare name — this prefix is load-bearing.
 _ENV = 'env PATH="$HOME/.local/bin:$PATH"'
 _HANDOFF_DIR = ".cache/term-web"
+# Single-user terminal behind SSO on the owner's own host — agents run with
+# permission prompts / sandboxing off by explicit owner choice.
+_AGENT_CMD = {
+    "claude": "claude --dangerously-skip-permissions",
+    "codex": "codex --dangerously-bypass-approvals-and-sandbox",
+}
 
 _tickets = URLSafeTimedSerializer(config.SESSION_SECRET, salt="term-ticket")
 _seen_nonces: dict[str, float] = {}
@@ -104,25 +110,29 @@ def build_remote_command(target: dict) -> str:
     browser, with none of tmux's multi-client size clamping."""
     kind = target["kind"]
     if kind == "claude":
-        # `claude-sessions open` imports from the archive; it refuses when the
-        # forge-local copy is newer (a just-used session before the 5-min sync)
-        # — fall back to resuming the local copy in the recorded cwd.
-        return (f"{_ENV} CLAUDE_SESSIONS_REMOTE=local "
-                f"claude-sessions open {target['uuid']} || "
-                f"{{ cd {shlex.quote(target['cwd'])} && "
-                f"{_ENV} claude --resume {target['uuid']}; }}")
+        # `claude-sessions open` would exec claude with no flag passthrough, so
+        # import via `pull` (echoes the project path) and invoke claude
+        # ourselves. pull refuses when the forge-local copy is newer (a
+        # just-used session before the 5-min sync) — fall back to the
+        # recorded cwd, where that newer local copy lives.
+        uuid = target["uuid"]
+        return (f'proj="$({_ENV} CLAUDE_SESSIONS_REMOTE=local '
+                f'claude-sessions pull {uuid})" || proj={shlex.quote(target["cwd"])}; '
+                f'cd "$proj" || cd "$HOME"; '
+                f'{_ENV} {_AGENT_CMD["claude"]} --resume {uuid}')
     if kind == "codex":
         return (f"cd {shlex.quote(target['cwd'])} || cd \"$HOME\"; "
-                f"{_ENV} codex resume {target['uuid']}")
+                f"{_ENV} codex resume --dangerously-bypass-approvals-and-sandbox "
+                f"{target['uuid']}")
     if kind == "cross":
         prompt = (f"Read ~/{target['handoff']} — a transcript digest of a prior "
                   f"session in this directory by another coding agent. "
                   f"Continue that work.")
         return (f"cd {shlex.quote(target['cwd'])} || cd \"$HOME\"; "
-                f"{_ENV} {target['agent']} {shlex.quote(prompt)}")
+                f"{_ENV} {_AGENT_CMD[target['agent']]} {shlex.quote(prompt)}")
     if kind == "new":
         wd = "$HOME" if target["workdir"] == "~" else f"$HOME/workspace/{target['workdir']}"
-        return f'cd "{wd}" && {_ENV} {target["agent"]}'
+        return f'cd "{wd}" && {_ENV} {_AGENT_CMD[target["agent"]]}'
     raise TargetError("unknown kind")
 
 
