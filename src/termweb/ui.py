@@ -178,7 +178,8 @@ function connect(ticket) {{
                      + location.host + '/ws/term?ticket=' + encodeURIComponent(ticket));
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {{ fit.fit();
-    ws.send(JSON.stringify({{t:'r', cols: term.cols, rows: term.rows}})); }};
+    ws.send(JSON.stringify({{t:'r', cols: term.cols, rows: term.rows}}));
+    term.focus(); }};  // nothing focuses the terminal otherwise — keys would go to <body>
   ws.onmessage = ev => {{
     if (typeof ev.data === 'string') {{
       const m = JSON.parse(ev.data);
@@ -193,6 +194,7 @@ function showOverlay(msg) {{
   document.getElementById('overlay').style.display = 'flex';
 }}
 term.onData(d => {{ if (ws && ws.readyState === 1) ws.send(JSON.stringify({{t:'i', d}})); }});
+window.addEventListener('focus', () => term.focus());
 window.addEventListener('resize', () => {{ fit.fit();
   if (ws && ws.readyState === 1)
     ws.send(JSON.stringify({{t:'r', cols: term.cols, rows: term.rows}})); }});
