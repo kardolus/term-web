@@ -8,8 +8,6 @@ claude-sessions CLI (`cmd_list`), emitting dicts instead of fixed-width text.
 import json
 import os
 import re
-import shlex
-import subprocess
 import time
 
 from . import config
@@ -174,6 +172,22 @@ def _codex_meta_and_preview(path: str) -> tuple[str, str]:
     return cwd, preview
 
 
+def claude_cwd(path: str) -> str:
+    """First recorded cwd in a claude transcript."""
+    try:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(obj.get("cwd"), str):
+                    return obj["cwd"]
+    except OSError:
+        pass
+    return ""
+
+
 def localize_cwd(cwd: str) -> str:
     """Rewrite a recorded /Users/x or /home/x prefix to forge's home (CLI's rule)."""
     if not cwd:
@@ -192,37 +206,6 @@ def _ssh_base() -> list[str]:
         "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
         f"{config.SSH_USER}@{config.SSH_HOST}",
     ]
-
-
-def list_tmux() -> list[dict]:
-    # ssh joins argv with spaces and the remote shell re-parses it, so the whole
-    # remote command must be one pre-quoted string (unquoted '#{...}' would
-    # start a shell comment and eat the -F argument).
-    fmt = "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_windows}"
-    try:
-        out = subprocess.run(
-            _ssh_base() + ["--", f"/usr/bin/tmux list-sessions -F {shlex.quote(fmt)}"],
-            capture_output=True, text=True, timeout=10,
-        )
-    except subprocess.TimeoutExpired:
-        return []
-    if out.returncode != 0:
-        return []  # covers "no server running"
-    rows = []
-    for line in out.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) != 4 or not TMUX_NAME_RE.match(parts[0]):
-            continue
-        created = int(parts[1]) if parts[1].isdigit() else 0
-        rows.append({
-            "name": parts[0],
-            "created": created,
-            "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(created)) if created else "",
-            "attached": parts[2] not in ("", "0"),
-            "windows": parts[3],
-        })
-    rows.sort(key=lambda r: r["created"], reverse=True)
-    return rows
 
 
 def list_workdirs(root: str | None = None) -> list[str]:

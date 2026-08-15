@@ -51,9 +51,12 @@ async def resolve_target(body: dict) -> dict:
 
     if kind == "claude":  # archived claude session, native resume
         uuid = body.get("uuid", "")
-        if not sessions.UUID_RE.match(uuid) or not sessions.find_claude_transcript(uuid):
+        path = sessions.find_claude_transcript(uuid) if sessions.UUID_RE.match(uuid) else None
+        if not path:
             raise TargetError("unknown claude session")
-        return {"kind": kind, "uuid": uuid, "name": f"cs-{uuid[:8]}"}
+        return {"kind": kind, "uuid": uuid,
+                "cwd": sessions.localize_cwd(sessions.claude_cwd(path)),
+                "name": f"cs-{uuid[:8]}"}
 
     if kind == "codex":  # forge-local codex session, native resume
         uuid = body.get("uuid", "")
@@ -91,40 +94,36 @@ async def resolve_target(body: dict) -> dict:
         return {"kind": kind, "agent": agent, "workdir": workdir,
                 "name": f"new-{agent}-{safe_dir}-{rand}"}
 
-    if kind == "attach":
-        name = body.get("name", "")
-        if not any(t["name"] == name for t in await asyncio.get_event_loop()
-                   .run_in_executor(None, sessions.list_tmux)):
-            raise TargetError("no such tmux session")
-        return {"kind": kind, "name": name}
-
     raise TargetError("unknown kind")
 
 
 def build_remote_command(target: dict) -> str:
+    """The agent runs directly on the ssh pty — no tmux. Sessions persist on
+    disk (claude/codex resume), so closing the tab just means resuming from
+    the picker; in exchange there is exactly one client, sized to YOUR
+    browser, with none of tmux's multi-client size clamping."""
     kind = target["kind"]
-    name = target["name"]
-    if kind == "attach":
-        return f"/usr/bin/tmux attach-session -t {shlex.quote(name)}"
-
     if kind == "claude":
-        inner = (f"{_ENV} CLAUDE_SESSIONS_REMOTE=local "
-                 f"claude-sessions open {target['uuid']}")
-    elif kind == "codex":
-        inner = (f"cd {shlex.quote(target['cwd'])} || cd \"$HOME\"; "
-                 f"{_ENV} codex resume {target['uuid']}")
-    elif kind == "cross":
+        # `claude-sessions open` imports from the archive; it refuses when the
+        # forge-local copy is newer (a just-used session before the 5-min sync)
+        # — fall back to resuming the local copy in the recorded cwd.
+        return (f"{_ENV} CLAUDE_SESSIONS_REMOTE=local "
+                f"claude-sessions open {target['uuid']} || "
+                f"{{ cd {shlex.quote(target['cwd'])} && "
+                f"{_ENV} claude --resume {target['uuid']}; }}")
+    if kind == "codex":
+        return (f"cd {shlex.quote(target['cwd'])} || cd \"$HOME\"; "
+                f"{_ENV} codex resume {target['uuid']}")
+    if kind == "cross":
         prompt = (f"Read ~/{target['handoff']} — a transcript digest of a prior "
                   f"session in this directory by another coding agent. "
                   f"Continue that work.")
-        inner = (f"cd {shlex.quote(target['cwd'])} || cd \"$HOME\"; "
-                 f"{_ENV} {target['agent']} {shlex.quote(prompt)}")
-    elif kind == "new":
+        return (f"cd {shlex.quote(target['cwd'])} || cd \"$HOME\"; "
+                f"{_ENV} {target['agent']} {shlex.quote(prompt)}")
+    if kind == "new":
         wd = "$HOME" if target["workdir"] == "~" else f"$HOME/workspace/{target['workdir']}"
-        inner = f'cd "{wd}" && {_ENV} {target["agent"]}'
-    else:
-        raise TargetError("unknown kind")
-    return f"/usr/bin/tmux new-session -A -s {shlex.quote(name)} {shlex.quote(inner)}"
+        return f'cd "{wd}" && {_ENV} {target["agent"]}'
+    raise TargetError("unknown kind")
 
 
 # ------------------------------------------------------------------ tickets

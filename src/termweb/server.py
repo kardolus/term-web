@@ -59,14 +59,12 @@ async def api_sessions(request: Request):
     user = auth.require_user(request, api=True)
     if not isinstance(user, str):
         return user
-    claude, codex, tmux, workdirs = await asyncio.gather(
+    claude, codex, workdirs = await asyncio.gather(
         _cached("claude", sessions.list_claude),
         _cached("codex", sessions.list_codex),
-        _cached("tmux", sessions.list_tmux),
         _cached("workdirs", sessions.list_workdirs),
     )
-    return JSONResponse({"claude": claude, "codex": codex,
-                         "tmux": tmux, "workdirs": workdirs})
+    return JSONResponse({"claude": claude, "codex": codex, "workdirs": workdirs})
 
 
 async def api_terminal(request: Request):

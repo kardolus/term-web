@@ -93,10 +93,6 @@ PICKER_BODY = """
 <main>
 <div id="status">loading sessions…</div>
 
-<h2>running on forge</h2>
-<div class="note">live tmux sessions — reattach picks up exactly where the terminal left off.</div>
-<div class="tablewrap"><table id="tmux"><tbody></tbody></table></div>
-
 <h2>new session</h2>
 <div class="newrow">
   <select id="new-agent"><option value="claude">claude</option><option value="codex">codex</option></select>
@@ -136,11 +132,6 @@ async function load() {
   if (r.status === 401) { location.href = '/auth/login'; return; }
   const d = await r.json();
   document.getElementById('status').textContent = '';
-  document.querySelector('#tmux tbody').innerHTML = d.tmux.length ? d.tmux.map(t =>
-    `<tr><td>${esc(t.name)}</td><td>${esc(t.when)}</td>
-     <td><span class="badge ${t.attached?'live':''}">${t.attached?'attached':'detached'}</span></td>
-     <td>${btn('attach', {kind:'attach', name:t.name}, true)}</td></tr>`).join('')
-    : '<tr><td class="note">none running</td></tr>';
   const dirs = d.workdirs.map(w => `<option>${esc(w)}</option>`).join('');
   document.getElementById('new-dir').innerHTML = dirs;
   document.querySelector('#claude tbody').innerHTML = d.claude.map(s =>
@@ -165,8 +156,7 @@ def terminal_body(name: str) -> str:
     return f"""
 <div id="term"></div>
 <div id="overlay"><div class="box"><p id="overlay-msg">session ended</p>
-<button class="primary" onclick="location.href='/'">back to sessions</button>
-<button id="reconnect" onclick="reconnect()">reconnect</button></div></div>
+<button class="primary" onclick="location.href='/'">back to sessions</button></div></div>
 <script src="{js_url}" integrity="{js_sri}" crossorigin="anonymous"></script>
 <script src="{fit_url}" integrity="{fit_sri}" crossorigin="anonymous"></script>
 <script>
@@ -184,7 +174,6 @@ fit.fit();
 let ws, exited = false;
 function connect(ticket) {{
   exited = false;
-  document.getElementById('overlay').style.display = 'none';
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
                      + location.host + '/ws/term?ticket=' + encodeURIComponent(ticket));
   ws.binaryType = 'arraybuffer';
@@ -194,22 +183,14 @@ function connect(ticket) {{
     if (typeof ev.data === 'string') {{
       const m = JSON.parse(ev.data);
       if (m.t === 'exit') {{ exited = true;
-        showOverlay('session ended (exit ' + m.code + ')', false); }}
+        showOverlay('session ended (exit ' + m.code + ')'); }}
     }} else term.write(new Uint8Array(ev.data));
   }};
-  ws.onclose = () => {{ if (!exited) showOverlay('disconnected', true); }};
+  ws.onclose = () => {{ if (!exited) showOverlay('disconnected — resume from the picker'); }};
 }}
-function showOverlay(msg, canReconnect) {{
+function showOverlay(msg) {{
   document.getElementById('overlay-msg').textContent = msg;
-  document.getElementById('reconnect').style.display = canReconnect ? '' : 'none';
   document.getElementById('overlay').style.display = 'flex';
-}}
-async function reconnect() {{
-  const r = await fetch('/api/terminal', {{method:'POST',
-    headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{kind:'attach', name: NAME}})}});
-  if (!r.ok) {{ showOverlay('session no longer running', false); return; }}
-  connect((await r.json()).ticket);
 }}
 term.onData(d => {{ if (ws && ws.readyState === 1) ws.send(JSON.stringify({{t:'i', d}})); }});
 window.addEventListener('resize', () => {{ fit.fit();
@@ -217,6 +198,6 @@ window.addEventListener('resize', () => {{ fit.fit();
     ws.send(JSON.stringify({{t:'r', cols: term.cols, rows: term.rows}})); }});
 const ticket = location.hash.slice(1);
 history.replaceState(null, '', location.pathname);  // ticket is one-shot; drop it
-if (ticket) connect(ticket); else reconnect();
+if (ticket) connect(ticket); else location.href = '/';  // no ticket -> picker
 </script>
 """
