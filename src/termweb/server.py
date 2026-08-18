@@ -6,6 +6,7 @@ Origin check (see terminal.py for why: RCE is the feature, so layer everything).
 """
 
 import asyncio
+import functools
 import time
 
 import uvicorn
@@ -28,6 +29,9 @@ async def _cached(key: str, fn):
     if hit and now - hit[0] < _CACHE_TTL:
         return hit[1]
     val = await asyncio.get_event_loop().run_in_executor(None, fn)
+    # prune expired entries so per-query search keys don't accumulate
+    for k in [k for k, (ts, _) in _cache.items() if now - ts >= _CACHE_TTL]:
+        _cache.pop(k, None)
     _cache[key] = (now, val)
     return val
 
@@ -83,6 +87,19 @@ async def api_terminal(request: Request):
                          "name": target["name"]})
 
 
+async def api_search(request: Request):
+    user = auth.require_user(request, api=True)
+    if not isinstance(user, str):
+        return user
+    q = (request.query_params.get("q") or "").strip()[:200]
+    terms = list(dict.fromkeys(t for t in q.casefold().split() if len(t) >= 2))[:8]
+    if not terms:
+        return JSONResponse({"q": q, "claude": []})
+    key = "search:" + "\0".join(terms)
+    results = await _cached(key, functools.partial(sessions.search_claude, terms))
+    return JSONResponse({"q": q, "claude": results})
+
+
 # ------------------------------------------------------------------ WS
 
 async def terminal_ws(ws: WebSocket):
@@ -125,6 +142,7 @@ routes = [
     Route("/t/{name}", terminal_page),
     Route("/api/sessions", api_sessions),
     Route("/api/terminal", api_terminal, methods=["POST"]),
+    Route("/api/search", api_search),
     WebSocketRoute("/ws/term", terminal_ws),
     Route("/auth/login", auth.login),
     Route("/auth/callback", auth.callback),

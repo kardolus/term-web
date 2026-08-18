@@ -44,9 +44,14 @@ td { padding:.35rem .5rem; border-bottom:1px solid #21262d; vertical-align:top; 
 tr:hover td { background: var(--panel); }
 .preview { color: var(--dim); max-width: 420px; overflow:hidden;
            text-overflow:ellipsis; white-space:nowrap; }
-button, select { font:inherit; font-size:.8rem; background:var(--panel);
+button, select, input { font:inherit; font-size:.8rem; background:var(--panel);
   color:var(--fg); border:1px solid var(--border); border-radius:6px;
   padding:.25rem .6rem; cursor:pointer; }
+input { flex:1; min-width:12rem; cursor:text; }
+mark { background: rgba(63,185,80,.25); color: var(--accent);
+       border-radius:3px; padding:0 .1em; }
+tr.snips td { color: var(--dim); font-size:.8rem; border-bottom:1px solid #21262d; }
+tr.snips:hover td { background: transparent; }
 button:hover { border-color: var(--accent-dim); color: var(--accent); }
 button.primary { background: var(--accent-dim); border-color: var(--accent-dim); }
 button.primary:hover { color:#fff; }
@@ -103,7 +108,16 @@ PICKER_BODY = """
 
 <h2>claude archive</h2>
 <div class="note">all machines, synced to forge every 5 min. "open in codex" hands the other agent a transcript digest.</div>
-<div class="tablewrap"><table id="claude"><thead><tr><th>when</th><th>host</th><th>project</th><th>size</th><th>preview</th><th></th></tr></thead><tbody></tbody></table></div>
+<div class="newrow" style="margin-bottom:.6rem">
+  <input id="q" placeholder="search transcripts — all terms must match"
+         onkeydown="if(event.key==='Enter')doSearch()"
+         oninput="if(!this.value.trim())clearSearch()">
+  <button class="primary" onclick="doSearch()">search</button>
+</div>
+<div class="tablewrap" id="results-wrap" style="display:none">
+  <table id="results"><thead><tr><th>when</th><th>host</th><th>project</th><th>size</th><th>matches</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+<div class="tablewrap" id="claude-wrap"><table id="claude"><thead><tr><th>when</th><th>host</th><th>project</th><th>size</th><th>preview</th><th></th></tr></thead><tbody></tbody></table></div>
 
 <h2>codex sessions</h2>
 <div class="note">forge-local only — codex sessions from other machines aren't synced.</div>
@@ -126,6 +140,43 @@ function launchNew() {
 }
 function btn(label, target, primary) {
   return `<button class="${primary?'primary':''}" onclick='launch(${JSON.stringify(target)})'>${label}</button>`;
+}
+const reEsc = t => t.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+function hi(s, terms) {  // esc() every part; <mark> only the matched (odd) parts
+  const re = new RegExp('(' + [...terms].sort((a,b) => b.length - a.length).map(reEsc).join('|') + ')', 'gi');
+  return s.split(re).map((p, i) => i % 2 ? `<mark>${esc(p)}</mark>` : esc(p)).join('');
+}
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return clearSearch();
+  document.getElementById('status').textContent = 'searching…';
+  let d;
+  try {
+    const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+    if (r.status === 401) { location.href = '/auth/login'; return; }
+    if (!r.ok) throw new Error(r.status);
+    d = await r.json();
+  } catch (e) {
+    document.getElementById('status').textContent = 'search failed — try again';
+    return;
+  }
+  document.getElementById('status').textContent =
+    d.claude.length ? '' : 'no matches for "' + q + '"';
+  const terms = q.split(/\\s+/).filter(t => t.length >= 2);
+  document.querySelector('#results tbody').innerHTML = d.claude.map(s =>
+    `<tr><td>${esc(s.when)}</td><td>${esc(s.host)}</td><td>${esc(s.project)}</td>
+     <td>${s.kb}K</td><td>${s.matches}</td>
+     <td>${btn('open in claude', {kind:'claude', uuid:s.uuid}, true)}
+         ${btn('open in codex', {kind:'cross', source:'claude', uuid:s.uuid}, false)}</td></tr>` +
+    s.snippets.map(t => `<tr class="snips"><td colspan="6">${hi(t, terms)}</td></tr>`).join('')
+  ).join('');
+  document.getElementById('results-wrap').style.display = '';
+  document.getElementById('claude-wrap').style.display = 'none';
+}
+function clearSearch() {
+  document.getElementById('results-wrap').style.display = 'none';
+  document.getElementById('claude-wrap').style.display = '';
+  document.getElementById('status').textContent = '';
 }
 async function load() {
   const r = await fetch('/api/sessions');

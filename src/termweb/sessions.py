@@ -102,6 +102,108 @@ def find_claude_transcript(uuid: str, root: str | None = None) -> str | None:
     return best
 
 
+# Lines bigger than this are tool dumps (excluded from search anyway); skipping
+# them caps the transient .lower() copy under the pod's 512Mi memory limit.
+_MAX_SEARCH_LINE = 16 * 1024 * 1024
+
+
+def _snippet(text: str, low: str, term: str, ctx: int = 60) -> str:
+    i = low.find(term)
+    s, e = max(0, i - ctx), min(len(text), i + len(term) + ctx)
+    out = " ".join(text[s:e].split())
+    return ("…" if s else "") + out + ("…" if e < len(text) else "")
+
+
+def search_claude(terms: list[str], root: str | None = None,
+                  limit: int = 50) -> list[dict]:
+    """Full-text search of archived transcripts. Case-insensitive; all terms
+    must appear somewhere in a session's conversation text (user + assistant
+    text blocks; '<'/'Caveat:' noise and tool dumps excluded), possibly in
+    different messages. One row per uuid — newest copy across hosts wins
+    (path tie-break). Ranked by matching-message count (once per message),
+    then recency. Streaming binary scan with an any-term raw prefilter before
+    json.loads — same algorithm as the CLI's cmd_search."""
+    root = root or config.CLAUDE_ARCHIVE_DIR
+    terms = [t.lower() for t in terms]
+    terms_b = [t.encode() for t in terms]
+    if not terms or not os.path.isdir(root):
+        return []
+
+    newest: dict[str, tuple[float, str, str, str, int]] = {}
+    for host in sorted(os.listdir(root)):
+        hostdir = os.path.join(root, host)
+        if not os.path.isdir(hostdir):
+            continue
+        for slug in os.listdir(hostdir):
+            slugdir = os.path.join(hostdir, slug)
+            if not os.path.isdir(slugdir):
+                continue
+            for f in os.listdir(slugdir):
+                if not f.endswith(".jsonl"):
+                    continue
+                path = os.path.join(slugdir, f)
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                cur = newest.get(f[:-6])
+                if cur is None or (st.st_mtime, path) > (cur[0], cur[3]):
+                    newest[f[:-6]] = (st.st_mtime, host, slug, path, st.st_size)
+
+    rows = []
+    for uuid, (mt, host, slug, path, size) in newest.items():
+        found: set[str] = set()
+        count, snips = 0, []
+        try:
+            with open(path, "rb") as fh:
+                for raw in fh:
+                    if len(raw) > _MAX_SEARCH_LINE:
+                        continue
+                    low = raw.lower()
+                    if not any(tb in low for tb in terms_b):
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if obj.get("type") not in ("user", "assistant"):
+                        continue
+                    msg = obj.get("message") or {}
+                    c = msg.get("content")
+                    if isinstance(c, list):
+                        c = "\n".join(p.get("text", "") for p in c
+                                      if isinstance(p, dict) and p.get("type") == "text")
+                    if not isinstance(c, str):
+                        continue
+                    c = c.strip()
+                    if not c or c.startswith("<") or c.startswith("Caveat:"):
+                        continue
+                    cl = c.lower()
+                    hit = [t for t in terms if t in cl]
+                    if not hit:
+                        continue
+                    count += 1  # once per message, however many occurrences
+                    found.update(hit)
+                    if len(snips) < 3:
+                        snips.append(_snippet(c, cl, hit[0]))
+        except OSError:
+            continue
+        if count and found == set(terms):
+            rows.append({
+                "mtime": mt,
+                "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(mt)),
+                "host": host,
+                "slug": slug,
+                "project": slug.split("-")[-1] or slug,
+                "uuid": uuid,
+                "kb": size // 1024,
+                "matches": count,
+                "snippets": snips,
+            })
+    rows.sort(key=lambda r: (r["matches"], r["mtime"]), reverse=True)
+    return rows[:limit]
+
+
 def list_codex(root: str | None = None) -> list[dict]:
     root = root or config.CODEX_SESSIONS_DIR
     rows = []

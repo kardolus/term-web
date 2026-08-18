@@ -9,7 +9,10 @@ session picker. Single-user (Keycloak OIDC, `ALLOWED_EMAILS=g@kardol.us`).
   all machines), forge-local Codex rollouts, running tmux sessions (reattach), and
   new-session launch with a `~/workspace` dir choice. Every session row can open in
   **either agent**: native resume, or cross-open via a transcript **handoff digest**
-  staged at `~/.cache/term-web/` on forge.
+  staged at `~/.cache/term-web/` on forge. A **search box** over the claude archive
+  (`/api/search?q=`) does a live ranked full-text scan of conversation text — all
+  terms must match, snippets highlighted, results open like any other row (same
+  semantics as `claude-sessions search`).
 - **Terminal** (`/t/<name>`): xterm.js ⇄ WebSocket ⇄ pod PTY ⇄ `ssh -tt` ⇄
   `tmux new -A` on the forge host as guillermo. tmux is the persistence layer:
   closing the tab detaches; the agent keeps running.
