@@ -20,7 +20,9 @@ from starlette.websockets import WebSocket
 from . import auth, config, sessions, terminal, ui
 
 _cache: dict[str, tuple[float, object]] = {}
+_inflight: dict[str, asyncio.Task] = {}
 _CACHE_TTL = 15
+_CACHE_MAX = 64   # hard cap: per-query search keys must not grow unbounded
 
 
 async def _cached(key: str, fn):
@@ -28,12 +30,23 @@ async def _cached(key: str, fn):
     hit = _cache.get(key)
     if hit and now - hit[0] < _CACHE_TTL:
         return hit[1]
-    val = await asyncio.get_event_loop().run_in_executor(None, fn)
-    # prune expired entries so per-query search keys don't accumulate
-    for k in [k for k, (ts, _) in _cache.items() if now - ts >= _CACHE_TTL]:
-        _cache.pop(k, None)
-    _cache[key] = (now, val)
-    return val
+    # coalesce concurrent misses on the same key (e.g. double-Enter on search)
+    # into one executor run — every waiter awaits the same task
+    task = _inflight.get(key)
+    if task is None:
+        async def run():
+            val = await asyncio.get_event_loop().run_in_executor(None, fn)
+            done = time.monotonic()
+            for k in [k for k, (ts, _) in _cache.items() if done - ts >= _CACHE_TTL]:
+                _cache.pop(k, None)
+            while len(_cache) >= _CACHE_MAX:
+                _cache.pop(min(_cache, key=lambda k: _cache[k][0]))
+            _cache[key] = (done, val)
+            return val
+        task = asyncio.get_event_loop().create_task(run())
+        _inflight[key] = task
+        task.add_done_callback(lambda _t: _inflight.pop(key, None))
+    return await task
 
 
 # ------------------------------------------------------------------ pages
@@ -94,10 +107,12 @@ async def api_search(request: Request):
     q = (request.query_params.get("q") or "").strip()[:200]
     terms = list(dict.fromkeys(t for t in q.casefold().split() if len(t) >= 2))[:8]
     if not terms:
-        return JSONResponse({"q": q, "claude": []})
+        return JSONResponse({"q": q, "terms": [], "claude": []})
     key = "search:" + "\0".join(terms)
     results = await _cached(key, functools.partial(sessions.search_claude, terms))
-    return JSONResponse({"q": q, "claude": results})
+    # the canonical term list drives client-side highlighting, so it can't
+    # drift from what the search actually matched
+    return JSONResponse({"q": q, "terms": terms, "claude": results})
 
 
 # ------------------------------------------------------------------ WS

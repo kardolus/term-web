@@ -124,8 +124,12 @@ def search_claude(terms: list[str], root: str | None = None,
     then recency. Streaming binary scan with an any-term raw prefilter before
     json.loads — same algorithm as the CLI's cmd_search."""
     root = root or config.CLAUDE_ARCHIVE_DIR
-    terms = [t.lower() for t in terms]
-    terms_b = [t.encode() for t in terms]
+    terms = [t.casefold() for t in terms]
+    # prefilter on both the literal bytes and the JSON-escaped form — text
+    # containing '"', '\' or (in ensure_ascii files) non-ASCII is stored
+    # escaped, and the raw-bytes check would otherwise skip those lines
+    terms_b = list({v for t in terms
+                    for v in (t.encode(), json.dumps(t)[1:-1].lower().encode())})
     if not terms or not os.path.isdir(root):
         return []
 
@@ -178,7 +182,7 @@ def search_claude(terms: list[str], root: str | None = None,
                     c = c.strip()
                     if not c or c.startswith("<") or c.startswith("Caveat:"):
                         continue
-                    cl = c.lower()
+                    cl = c.casefold()
                     hit = [t for t in terms if t in cl]
                     if not hit:
                         continue

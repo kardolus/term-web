@@ -162,7 +162,7 @@ async function doSearch() {
   }
   document.getElementById('status').textContent =
     d.claude.length ? '' : 'no matches for "' + q + '"';
-  const terms = q.split(/\\s+/).filter(t => t.length >= 2);
+  const terms = d.terms;  // the server's canonical list — highlight exactly what matched
   document.querySelector('#results tbody').innerHTML = d.claude.map(s =>
     `<tr><td>${esc(s.when)}</td><td>${esc(s.host)}</td><td>${esc(s.project)}</td>
      <td>${s.kb}K</td><td>${s.matches}</td>

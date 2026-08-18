@@ -146,6 +146,18 @@ def test_search_oversized_line_skipped(search_archive, monkeypatch):
     assert sessions.search_claude(["oauth"], str(search_archive))
 
 
+def test_search_json_escaped_content(tmp_path):
+    # json.dumps (ensure_ascii=True here) stores 'café' as 'caf\\u00e9' and the
+    # quote as '\\"' — the raw prefilter must still find both via the escaped
+    # byte variants, and the cleaned-text match confirms them
+    _write_transcript(
+        tmp_path / "hostA" / "-Users-guillermo-workspace-x", S1,
+        [_msg("user", 'the café said "bonjour" to everyone')],
+    )
+    assert sessions.search_claude(["café"], str(tmp_path))
+    assert sessions.search_claude(['"bonjour"'], str(tmp_path))
+
+
 def test_search_snippet_is_plain_text(tmp_path):
     _write_transcript(
         tmp_path / "hostA" / "-Users-guillermo-workspace-x", S1,
