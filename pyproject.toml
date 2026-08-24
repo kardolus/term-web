@@ -2,6 +2,7 @@
 name = "term-web"
 version = "0.1.0"
 description = "Browser terminal for Claude Code / Codex on forge, with session picker (term.kardol.us)"
+license = {text = "MIT"}
 requires-python = ">=3.12"
 dependencies = [
     "starlette>=0.37",

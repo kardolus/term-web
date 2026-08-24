@@ -41,3 +41,39 @@ SESSION_SECRET=x uv run python -m termweb.server  # localhost:8000
 docker build -t ghcr.io/kardolus/term-web:vN . && docker push ghcr.io/kardolus/term-web:vN
 kubectl --context forge -n term set image deploy/term-web term-web=ghcr.io/kardolus/term-web:vN
 ```
+
+## Security — read before deploying
+
+**This app hands out a real shell** on the SSH target host to anyone who
+passes Keycloak OIDC and the `ALLOWED_EMAILS` allow-list. Threat model, honestly:
+
+- A compromised IdP account on the allow-list = a shell on your host. There is
+  no command filtering and no audit log beyond your shell history.
+- `SESSION_SECRET` signs the login cookie; whoever holds it can mint sessions.
+  The server refuses to start with the dev default unless `TERMWEB_DEV=1`.
+- The pod holds a private SSH key to the host and read-only mounts of your
+  session archive — transcripts routinely contain secrets.
+- This is a homelab project. It has not had a formal security audit; assume
+  the terminal stack (Starlette + xterm.js + PTY bridge) may have bugs.
+
+Hardening that is on by default: OIDC with a confidential client, an email
+allow-list, one-time 30s WebSocket tickets, an Origin check, pinned
+`known_hosts`, no client-supplied command ever reaching a shell, and only
+`/healthz` + `/favicon.svg` unauthenticated. Recommended on top: a dedicated
+low-privilege SSH user, exact redirect URIs in the IdP client, and keeping the
+app reachable only via a network layer you control (VPN/tunnel).
+
+## Adapting this
+
+Built for one homelab (defaults name `kardol.us`, `forge`, `10.0.0.120`,
+`guillermo`) — **every one of them must be overridden for your setup**, via the
+env vars in `src/termweb/config.py` and the manifest in
+`deploy/k8s/10-term-web.yaml` (its header lists the prereqs: Keycloak
+confidential client, SSH keypair to the host, k8s secrets, ingress with long
+proxy timeouts for the WebSocket). The session picker expects an archive laid
+out by [agent-sessions](https://github.com/kardolus/agent-sessions)
+(`<host>/<project-slug>/<uuid>.jsonl`).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

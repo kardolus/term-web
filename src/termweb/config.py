@@ -6,7 +6,13 @@ import os
 KEYCLOAK_ISSUER = os.environ.get("KEYCLOAK_ISSUER", "https://auth.kardol.us/realms/homelab")
 KEYCLOAK_CLIENT_ID = os.environ.get("KEYCLOAK_CLIENT_ID", "term")
 KEYCLOAK_CLIENT_SECRET = os.environ.get("KEYCLOAK_CLIENT_SECRET", "")
-SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-only-secret")
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
+if (not SESSION_SECRET or SESSION_SECRET == "dev-only-secret") and os.environ.get("TERMWEB_DEV") != "1":
+    raise RuntimeError(
+        "SESSION_SECRET is unset or the dev default. It signs the login cookie "
+        "for an app that hands out a shell — set a real secret, or TERMWEB_DEV=1 "
+        "for local development.")
+SESSION_SECRET = SESSION_SECRET or "dev-only-secret"
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://term.kardol.us")
 
 # This app hands out a shell on forge; the allow-list is deliberately one person.
